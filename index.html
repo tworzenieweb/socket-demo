@@ -5,7 +5,7 @@
     <title></title>
 </head>
 <style>
-    #log {
+    #box {
         padding: 20px;
         border: 1px solid gray;
         background: #f4f4f4;
@@ -15,13 +15,24 @@
 </style>
 <body>
 
-<div class="log" id="log"></div>
+<form id="someform">
 
-<button id="take">Lock the box</button>
+    <input type="text" name="somename" />
+
+    <textarea class="box" id="box"></textarea>
+
+</form>
+
+
+
+<p class="actions" style="display:none;">
+<button id="releaseForm">Save</button>
+</p>
 
 <script src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
 <script src="http://autobahn.s3.amazonaws.com/js/autobahn.min.js"></script>
 <script src="server.js"></script>
 
-</body>
+</body>4
+
 </html>

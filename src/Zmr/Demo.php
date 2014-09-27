@@ -19,6 +19,8 @@ use Ratchet\Wamp\WampServerInterface;
 class Demo implements WampServerInterface {
 
     const CTRL_FORMS = 'zmr:forms';
+    const RELEASED = 'released';
+    const LOCKED = 'locked';
 
     protected $formsLocked;
 
@@ -36,14 +38,50 @@ class Demo implements WampServerInterface {
         $topic->broadcast($event);
     }
 
+    /**
+     * @param ConnectionInterface $conn
+     * @param string $id
+     * @param \Ratchet\Wamp\Topic|string $fn
+     * @param array $params
+     * @return mixed
+     */
     public function onCall(ConnectionInterface $conn, $id, $fn, array $params) {
+
+
+        $form = $params['form'];
+
         switch ($fn) {
-            case 'setName':
+
+            case 'lockForm':
+
+                $locker = $params['locker'];
+
+                // form is touched for the first time
+                if (empty($this->formsLocked[$form])) {
+
+                    $this->formsLocked[$form] = $locker;
+
+                    $conn->callResult($id, array(
+                            'event' => 'FormLock',
+                            'locker' => $locker
+                    ));
+
+                    $this->broadcast($form, array("status" => static::LOCKED), $conn);
+
+
+                } else {
+
+                    $conn->callError($id, "Form was locked", array('form' => $form, 'status' => static::LOCKED, 'locker' => $this->formsLocked[$form]));
+
+                }
+
                 break;
 
-            case 'lock':
+            case 'releaseForm':
 
-                var_dump('Form locked');
+                $this->formsLocked[$form] = null;
+
+                $this->broadcast($form, array("status" => static::RELEASED));
 
                 break;
 
@@ -60,21 +98,47 @@ class Demo implements WampServerInterface {
             $this->formsSubscribers[$form] = new \SplObjectStorage();
         }
 
+        echo sprintf("User %s subscribed", $conn->WAMP->sessionId);
+
         $this->formsSubscribers[$form]->attach($conn);
 
-        $conn->event(static::CTRL_FORMS, 'some message');
+        $conn->event($form, array(
+            "status" => $this->formsLocked[$form] ? static::LOCKED : static::RELEASED
+        ));
+
+
 
     }
     public function onUnSubscribe(ConnectionInterface $conn, $topic) {}
 
     public function onOpen(ConnectionInterface $conn) {
 
-        $conn->Forms = new \StdClass;
-        $conn->Forms->lockedForms = array();
-
         echo "New User Joined\n";
 
     }
-    public function onClose(ConnectionInterface $conn) {}
+    public function onClose(ConnectionInterface $conn) {
+
+
+        foreach ($this->formsLocked as $form => $sessionId) {
+
+            if ($conn->WAMP->sessionId === $sessionId) {
+                $this->formsLocked[$form] = null;
+                $this->broadcast($form, array("status" => static::RELEASED));
+                $this->formsSubscribers[$form]->detach($conn);
+            }
+
+        }
+
+    }
     public function onError(ConnectionInterface $conn, \Exception $e) {}
+
+
+    protected function broadcast($form, $msg, ConnectionInterface $exclude = null) {
+        foreach ($this->formsSubscribers[$form] as $client) {
+            if ($client !== $exclude) {
+                $client->event($form, $msg);
+            }
+        }
+    }
+
 }
