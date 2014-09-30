@@ -1,13 +1,8 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: tworzenieweb
- * Date: 24.09.14
- * Time: 15:50
- */
 
 namespace Zmr;
 
+use Monolog\Logger;
 use Ratchet\ConnectionInterface;
 use Ratchet\Wamp\WampServerInterface;
 
@@ -16,12 +11,14 @@ use Ratchet\Wamp\WampServerInterface;
  * Anything clients publish on a topic will be received
  *  on that topic by all clients
  */
-class Demo implements WampServerInterface {
+class FormLock implements WampServerInterface {
 
-    const CTRL_FORMS = 'zmr:forms';
     const RELEASED = 'released';
     const LOCKED = 'locked';
 
+    /**
+     * @var string[] array of sessionIds
+     */
     protected $formsLocked;
 
     /**
@@ -29,9 +26,15 @@ class Demo implements WampServerInterface {
      */
     protected $formsSubscribers;
 
-    public function __construct() {
+    /**
+     * @var Logger
+     */
+    protected $logger;
+
+    public function __construct(Logger $logger) {
         $this->formsLocked = [];
         $this->formsSubscribers = [];
+        $this->logger = $logger;
     }
 
     public function onPublish(ConnectionInterface $conn, $topic, $event, array $exclude, array $eligible) {
@@ -46,7 +49,6 @@ class Demo implements WampServerInterface {
      * @return mixed
      */
     public function onCall(ConnectionInterface $conn, $id, $fn, array $params) {
-
 
         $form = $params['form'];
 
@@ -66,8 +68,8 @@ class Demo implements WampServerInterface {
                             'locker' => $locker
                     ));
 
+                    $this->logger->addDebug(sprintf('Form %s was locked by %s', $form, $locker));
                     $this->broadcast($form, array("status" => static::LOCKED), $conn);
-
 
                 } else {
 
@@ -80,12 +82,13 @@ class Demo implements WampServerInterface {
             case 'releaseForm':
 
                 $this->formsLocked[$form] = null;
-
+                $this->logger->addDebug(sprintf('Form %s was released', $form));
                 $this->broadcast($form, array("status" => static::RELEASED));
 
                 break;
 
             default:
+                $this->logger->addError('Unknown method call');
                 return $conn->callError($id, 'Unknown call');
                 break;
         }
@@ -98,12 +101,11 @@ class Demo implements WampServerInterface {
             $this->formsSubscribers[$form] = new \SplObjectStorage();
         }
 
-        echo sprintf("User %s subscribed", $conn->WAMP->sessionId);
-
         $this->formsSubscribers[$form]->attach($conn);
+        $this->logger->addInfo(sprintf('User %s subscribed %s', $conn->WAMP->sessionId, $form));
 
         $conn->event($form, array(
-            "status" => $this->formsLocked[$form] ? static::LOCKED : static::RELEASED
+            "status" => empty($this->formsLocked[$form]) ? static::RELEASED : static::LOCKED
         ));
 
 
@@ -113,12 +115,13 @@ class Demo implements WampServerInterface {
 
     public function onOpen(ConnectionInterface $conn) {
 
-        echo "New User Joined\n";
+        $this->logger->addInfo(sprintf('New user %s connected', $conn->WAMP->sessionId));
 
     }
     public function onClose(ConnectionInterface $conn) {
 
 
+        // release forms for closed connection
         foreach ($this->formsLocked as $form => $sessionId) {
 
             if ($conn->WAMP->sessionId === $sessionId) {
@@ -131,7 +134,6 @@ class Demo implements WampServerInterface {
 
     }
     public function onError(ConnectionInterface $conn, \Exception $e) {}
-
 
     protected function broadcast($form, $msg, ConnectionInterface $exclude = null) {
         foreach ($this->formsSubscribers[$form] as $client) {

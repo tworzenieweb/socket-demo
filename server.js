@@ -6,7 +6,8 @@ var ZMR = ZMR || {};
     ZMR.API = {
 
         RELEASED: 'released',
-        LOCKED: 'locked'
+        LOCKED: 'locked',
+        FORMS_NAMESPACE: 'zmr:forms:'
 
     };
 
@@ -17,7 +18,7 @@ var ZMR = ZMR || {};
     ZMR.WebSocketClient = {
 
         session: null,
-        SERVER_URL: 'ws://localhost:8080',
+        SERVER_URL: 'ws://33.33.33.100:8001',
         clientColor: null,
         sessionId: null,
         formLocked: false,
@@ -25,10 +26,9 @@ var ZMR = ZMR || {};
 
         init: function () {
 
-            this.session = this.connect();
             this.box = $('#box');
-
             this.initEvents();
+            this.connect();
 
 
         },
@@ -47,7 +47,7 @@ var ZMR = ZMR || {};
 
             if (!this.formLocked) {
 
-                this.lockForm('zmr:forms:' + target.attr('id'));
+                this.lockForm(ZMR.API.FORMS_NAMESPACE + target.attr('id'));
 
             }
 
@@ -56,16 +56,18 @@ var ZMR = ZMR || {};
         clickReleaseEvent: function (e) {
 
             e.preventDefault();
-
-            this.releaseForm('zmr:forms:box');
+            this.releaseForm(ZMR.API.FORMS_NAMESPACE + this.determineFormIdForTarget($(e.currentTarget)));
 
         },
 
-        clickLockEvent: function (e) {
+        /**
+         *
+         * @param $target jQuery
+         * @return jQuery founded form
+         */
+        determineFormIdForTarget: function ($target) {
 
-            e.preventDefault();
-
-            this.lockForm('zmr:forms:box');
+            return $target.closest('form')[0].id;
 
         },
 
@@ -75,7 +77,7 @@ var ZMR = ZMR || {};
          */
         connect: function () {
 
-            return new ab.Session(
+            this.session = new ab.Session(
                 this.SERVER_URL,
                 $.proxy(this.connectedEvent, this),
                 $.proxy(this.closedEvent, this),
@@ -88,11 +90,37 @@ var ZMR = ZMR || {};
 
         },
 
+        /**
+         * Callback called when connection is established
+         */
         connectedEvent: function () {
 
             this.sessionId = this.session._session_id;
 
-            this.session.subscribe('zmr:forms:box', $.proxy(this.subscribeEvent, this));
+            this.subscribeAllForms();
+
+        },
+
+        subscribeAllForms: function () {
+
+            //
+            $('form').each(function () {
+
+                var formId = this.id;
+
+                ZMR.WebSocketClient.subscribeForm(formId);
+
+            });
+
+        },
+
+        subscribeForm: function (formId) {
+
+            var formKey = ZMR.API.FORMS_NAMESPACE + formId;
+
+            console.log('Subscription for ' + formKey + ' started');
+            this.session.subscribe(formKey, $.proxy(this.subscribeEvent, this));
+
         },
 
         closedEvent: function () {
@@ -119,7 +147,6 @@ var ZMR = ZMR || {};
                     break;
 
             }
-
 
         },
 

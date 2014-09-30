@@ -3,25 +3,31 @@
 namespace Zmr;
 
 
+use Monolog\Handler\ErrorLogHandler;
 use Ratchet\Http\HttpServer;
 use Ratchet\Server\IoServer;
 use Ratchet\Wamp\ServerProtocol;
 use Ratchet\WebSocket\WsServer;
+use Monolog\Logger;
 
 class Server {
 
     public function run() {
+
+        $logger = new Logger('console');
+        $logger->pushHandler(new ErrorLogHandler());
+        $formLock = new FormLock($logger);
 
         $webServer = IoServer::factory(
             new HttpServer(
                 new WsServer(
                     new ServerProtocol(
 
-                        new Demo()
+                        $formLock
 
                     )
                 )
-            ), 8080
+            ), 8001
         );
 
         $webServer->run();
