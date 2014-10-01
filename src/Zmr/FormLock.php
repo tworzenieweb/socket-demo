@@ -112,7 +112,7 @@ class FormLock extends AbstractDispatcher {
 
             $conn->event($form, array(
                 "status" => static::FORM_LOCKED,
-                "name" => $this->formsSubscribers[$form]
+                "name" => $this->formsLockedName[$form]
             ));
 
         }
