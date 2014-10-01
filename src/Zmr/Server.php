@@ -21,17 +21,12 @@ class Server {
         $webServer = IoServer::factory(
             new HttpServer(
                 new WsServer(
-                    new ServerProtocol(
-
-                        $formLock
-
-                    )
+                    new ServerProtocol($formLock)
                 )
-            ), 8001
+            ), 8001, '46.41.129.246'
         );
 
-        $webServer->run();
-
+        return $webServer->run();
 
     }
 

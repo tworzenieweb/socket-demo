@@ -4,17 +4,15 @@ namespace Zmr;
 
 use Monolog\Logger;
 use Ratchet\ConnectionInterface;
-use Ratchet\Wamp\WampServerInterface;
 
 /**
- * A simple pub/sub implementation
- * Anything clients publish on a topic will be received
- *  on that topic by all clients
+ * Class Responsible for form locking functionality
+ * @package Zmr
  */
-class FormLock implements WampServerInterface {
+class FormLock extends AbstractDispatcher {
 
-    const RELEASED = 'released';
-    const LOCKED = 'locked';
+    const FORM_RELEASED = 'released';
+    const FORM_LOCKED = 'locked';
 
     /**
      * @var string[] array of sessionIds
@@ -22,23 +20,20 @@ class FormLock implements WampServerInterface {
     protected $formsLocked;
 
     /**
-     * @var \SplObjectStorage[]
+     * @var string[] array of names for each form
+     */
+    protected $formsLockedName;
+
+    /**
+     * @var \SplObjectStorage[] this property stores connections for each formId
      */
     protected $formsSubscribers;
 
-    /**
-     * @var Logger
-     */
-    protected $logger;
 
-    public function __construct(Logger $logger) {
+    protected function init() {
         $this->formsLocked = [];
+        $this->formsLockedName = [];
         $this->formsSubscribers = [];
-        $this->logger = $logger;
-    }
-
-    public function onPublish(ConnectionInterface $conn, $topic, $event, array $exclude, array $eligible) {
-        $topic->broadcast($event);
     }
 
     /**
@@ -52,28 +47,32 @@ class FormLock implements WampServerInterface {
 
         $form = $params['form'];
 
+        $this->log(sprintf('Call method %s executed with parameters %s', $fn, var_export($params, true)));
+
         switch ($fn) {
 
             case 'lockForm':
 
                 $locker = $params['locker'];
+                $name = $params['name'];
 
                 // form is touched for the first time
                 if (empty($this->formsLocked[$form])) {
 
                     $this->formsLocked[$form] = $locker;
+                    $this->formsLockedName[$form] = $name;
 
                     $conn->callResult($id, array(
                             'event' => 'FormLock',
                             'locker' => $locker
                     ));
 
-                    $this->logger->addDebug(sprintf('Form %s was locked by %s', $form, $locker));
-                    $this->broadcast($form, array("status" => static::LOCKED), $conn);
+                    $this->log(sprintf('Form %s was locked by %s', $form, $locker));
+                    $this->broadcast($form, array("status" => static::FORM_LOCKED, "name" => $name), $this->formsSubscribers, $conn);
 
                 } else {
 
-                    $conn->callError($id, "Form was locked", array('form' => $form, 'status' => static::LOCKED, 'locker' => $this->formsLocked[$form]));
+                    $conn->callError($id, "Form was locked", array('form' => $form, 'status' => static::FORM_LOCKED, 'locker' => $this->formsLocked[$form]));
 
                 }
 
@@ -82,18 +81,23 @@ class FormLock implements WampServerInterface {
             case 'releaseForm':
 
                 $this->formsLocked[$form] = null;
-                $this->logger->addDebug(sprintf('Form %s was released', $form));
-                $this->broadcast($form, array("status" => static::RELEASED));
+                $this->formsLockedName[$form] = null;
+                $this->log(sprintf('Form %s was released', $form));
+                $this->broadcast($form, array("status" => static::FORM_RELEASED), $this->formsSubscribers);
 
                 break;
 
             default:
-                $this->logger->addError('Unknown method call');
+                $this->log('Unknown method call', Logger::ERROR);
                 return $conn->callError($id, 'Unknown call');
                 break;
         }
     }
 
+    /**
+     * @param ConnectionInterface $conn
+     * @param \Ratchet\Wamp\Topic|string $form
+     */
     public function onSubscribe(ConnectionInterface $conn, $form) {
 
 
@@ -102,45 +106,41 @@ class FormLock implements WampServerInterface {
         }
 
         $this->formsSubscribers[$form]->attach($conn);
-        $this->logger->addInfo(sprintf('User %s subscribed %s', $conn->WAMP->sessionId, $form));
+        $this->log(sprintf('User %s subscribed %s', $conn->WAMP->sessionId, $form), Logger::INFO);
 
-        $conn->event($form, array(
-            "status" => empty($this->formsLocked[$form]) ? static::RELEASED : static::LOCKED
-        ));
+        if (!empty($this->formsLocked[$form])) {
+
+            $conn->event($form, array(
+                "status" => static::FORM_LOCKED,
+                "name" => $this->formsSubscribers[$form]
+            ));
+
+        }
 
 
-
-    }
-    public function onUnSubscribe(ConnectionInterface $conn, $topic) {}
-
-    public function onOpen(ConnectionInterface $conn) {
-
-        $this->logger->addInfo(sprintf('New user %s connected', $conn->WAMP->sessionId));
 
     }
+
+    /**
+     * @param ConnectionInterface $conn
+     * @throws \Exception
+     */
     public function onClose(ConnectionInterface $conn) {
 
 
         // release forms for closed connection
-        foreach ($this->formsLocked as $form => $sessionId) {
+        foreach ($this->formsLocked as $formName => $sessionId) {
 
             if ($conn->WAMP->sessionId === $sessionId) {
-                $this->formsLocked[$form] = null;
-                $this->broadcast($form, array("status" => static::RELEASED));
-                $this->formsSubscribers[$form]->detach($conn);
+
+                unset($this->formsLocked[$formName], $this->formsName[$formName]);
+                $this->formsSubscribers[$formName]->detach($conn);
+
+                $this->broadcast($formName, array("status" => static::FORM_RELEASED), $this->formsSubscribers);
             }
 
         }
 
-    }
-    public function onError(ConnectionInterface $conn, \Exception $e) {}
-
-    protected function broadcast($form, $msg, ConnectionInterface $exclude = null) {
-        foreach ($this->formsSubscribers[$form] as $client) {
-            if ($client !== $exclude) {
-                $client->event($form, $msg);
-            }
-        }
     }
 
 }

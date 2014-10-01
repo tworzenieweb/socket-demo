@@ -15,24 +15,39 @@
 </style>
 <body>
 
-<form id="someform">
+<form id="someform" class="lockable" style="padding: 100px; text-align: center;">
 
     <p><label>Somename <input type="text" name="somename" /></label></p>
 
     <p><textarea class="box" id="box"></textarea></p>
 
+    <p class="actions" style="display:none;">
+        <button id="releaseForm">Save</button>
+    </p>
+
+    <button type="submit">Send</button>
+
 </form>
 
-
-
-<p class="actions" style="display:none;">
-<button id="releaseForm">Save</button>
-</p>
-
 <script src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
+<script src="js/jquery.noty.packaged.min.js"></script>
 <script src="http://autobahn.s3.amazonaws.com/js/autobahn.min.js"></script>
 <script src="server.js"></script>
 
-</body>4
+<script>
+
+    (function ($) {
+
+        $(function () {
+
+            ZMR.WebSocketClient.init('ws://46.41.129.246:8001');
+
+        });
+
+    }(jQuery));
+
+</script>
+
+</body>
 
 </html>

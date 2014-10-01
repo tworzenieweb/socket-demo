@@ -1,7 +1,7 @@
 var ZMR = ZMR || {};
 
 
-(function ($) {
+(function ($, noty) {
 
     ZMR.API = {
 
@@ -12,51 +12,45 @@ var ZMR = ZMR || {};
     };
 
     /**
-     * Abstract socket cli
-     * @type {{session: null, SERVER_URL: string, clientColor: null, sessionId: null, formLocked: boolean, init: Function, initEvents: Function, formEdit: Function, clickReleaseEvent: Function, clickLockEvent: Function, connect: Function, connectedEvent: Function, closedEvent: Function, subscribeEvent: Function, lockForm: Function, releaseForm: Function, log: Function}}
+     * Abstract websocket client
+     *
      */
     ZMR.WebSocketClient = {
 
         session: null,
-        SERVER_URL: 'ws://33.33.33.100:8001',
         clientColor: null,
         sessionId: null,
         formLocked: false,
 
 
-        init: function () {
+        init: function (url) {
 
-            this.box = $('#box');
             this.initEvents();
-            this.connect();
-
+            this.connect(url);
 
         },
 
         initEvents: function () {
 
-            $('#releaseForm').on('click', $.proxy(this.clickReleaseEvent, this));
-            $('#lockForm').on('click', $.proxy(this.clickLockEvent, this));
-            this.box.on('focus input', $.proxy(this.formEdit, this));
+            $('form').on('submit', $.proxy(this.formReleaseEvent, this))
+                     .on('focus input', 'input, select, textarea', $.proxy(this.formEditStartedEvent, this));
 
         },
 
-        formEdit: function (e) {
-
-            var target = $(e.currentTarget);
+        formEditStartedEvent: function (e) {
 
             if (!this.formLocked) {
 
-                this.lockForm(ZMR.API.FORMS_NAMESPACE + target.attr('id'));
+                this.lockForm(ZMR.API.FORMS_NAMESPACE + this.determineFormIdForTarget($(e.currentTarget)));
 
             }
 
         },
 
-        clickReleaseEvent: function (e) {
+        formReleaseEvent: function (e) {
 
             e.preventDefault();
-            this.releaseForm(ZMR.API.FORMS_NAMESPACE + this.determineFormIdForTarget($(e.currentTarget)));
+            this.releaseForm(ZMR.API.FORMS_NAMESPACE + e.currentTarget.id);
 
         },
 
@@ -73,12 +67,13 @@ var ZMR = ZMR || {};
 
         /**
          * Connect to websocket and return session instance
+         * @param url string websocket connection
          * @returns {window.ab.Session}
          */
-        connect: function () {
+        connect: function (url) {
 
             this.session = new ab.Session(
-                this.SERVER_URL,
+                url,
                 $.proxy(this.connectedEvent, this),
                 $.proxy(this.closedEvent, this),
                 {
@@ -101,14 +96,17 @@ var ZMR = ZMR || {};
 
         },
 
+        /**
+         * subscribe to all active forms on page
+         * (needs to have .lockable class)
+         */
         subscribeAllForms: function () {
 
-            //
-            $('form').each(function () {
+            var that = this;
 
-                var formId = this.id;
+            $('form.lockable').each(function () {
 
-                ZMR.WebSocketClient.subscribeForm(formId);
+                that.subscribeForm(this.id);
 
             });
 
@@ -128,76 +126,109 @@ var ZMR = ZMR || {};
         },
 
         subscribeEvent: function(form, payload) {
-
-
             switch (payload.status) {
 
                 case ZMR.API.RELEASED:
 
-                    this.box.css('border', 'none');
-                    ZMR.WebSocketClient.formLocked = false;
-                    $('.actions').hide();
+                    this.releaseUIForm(form);
+
+                    noty({
+                        text: 'Form was released',
+                        layout: 'top',
+                        type: 'success',
+                        timeout: 2000
+                    });
+
                     break;
 
                 case ZMR.API.LOCKED:
 
-                    ZMR.WebSocketClient.box.css('border', '5px solid red');
-                    ZMR.WebSocketClient.box.css('disabled', 'true');
-                    ZMR.WebSocketClient.formLocked = true;
+                    this.lockUIForm(form);
+
+                    noty({
+                        text: 'Form was locked by ' + payload.name,
+                        layout: 'top',
+                        type: 'error',
+                        timeout: 2000
+                    });
+
                     break;
 
             }
 
         },
 
+        releaseUIForm: function (form) {
+
+            var formKey = form.split(':')[2];
+
+            $('#' + formKey).find('input, textarea, select, button').prop('disabled', false);
+            this.formLocked = false;
+
+        },
+
+        lockUIForm: function (form) {
+
+            var formKey = form.split(':')[2];
+
+            $('#' + formKey).find('input, textarea, select, button').prop('disabled', true);
+            this.formLocked = true;
+
+        },
+
+        /**4
+         * Lock the form by calling server onCall method
+         * Then the message is propagated to all subscribers of the form
+         * @param formName
+         */
         lockForm: function (formName) {
 
             this.session.call('lockForm', {
                 locker: this.sessionId,
+                name: "Some user",
                 form: formName
             }).then(
-                function (response) {
+                function () {
+                    noty({
+                        text: 'Form was locked',
+                        layout: 'top',
+                        type: 'information',
+                        timeout: 2000
+                    });
                     ZMR.WebSocketClient.formLocked = true;
-                    ZMR.WebSocketClient.box.css('border', '5px solid green');
-
-                    $('.actions').show();
                 },
-                function (response) {
-                    ZMR.WebSocketClient.box.css('border', '5px solid red');
-                    ZMR.WebSocketClient.box.css('disabled', 'true');
-                    ZMR.WebSocketClient.formLocked = true;
+                function () {
+                    ZMR.WebSocketClient.lockUIForm(formName);
                 }
             );
 
 
         },
+
+        /**
+         * Release the form by calling server onCall method
+         * Then the message is propagated to all subscribers of the form
+         * @param formName
+         */
         releaseForm: function (formName) {
 
             this.session.call('releaseForm', {
                 form: formName
-            }).then(
-                function (response) {
-                },
-                function (response) {
-                }
-            );
+            }).then(function () {
 
+                noty({
+                    text: 'Form was released',
+                    layout: 'top',
+                    type: 'information',
+                    timeout: 2000
+                });
 
-        },
+            });
 
-        log: function (message) {
-
-            this.box.append('<p>' + message + '</p>');
 
         }
 
-    }
-
-    $(function () {
-
-        ZMR.WebSocketClient.init();
-
-    });
+    };
 
 
-}(jQuery));
+}(jQuery, noty));
